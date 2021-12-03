@@ -1,114 +1,129 @@
 const express = require("express");
-const cors = require("cors");
 const {MongoClient} = require("mongodb");
-const ObjectID = require("mongodb").ObjectId;
+const ObjectId = require("mongodb").ObjectId;
 require("dotenv").config();
+const cors = require("cors");
 
 const app = express();
+const port = process.env.PORT || 5000;
 
-//middlewares
+// middleware
 app.use(cors());
 app.use(express.json());
 
-const port = process.env.PORT || 5000;
-
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.jiiff.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
+// });
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.hw8wv.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
 
+async function verifyToken(req, res, next) {
+  if (req.headers?.authorization?.startsWith("Bearer ")) {
+    const idToken = req.headers.authorization.split("Bearer ")[1];
+    console.log(idToken);
+    try {
+      const decodedUser = await admin?.auth()?.verifyIdToken(idToken);
+      req.decodedUserEmail = decodedUser.email;
+    } catch {}
+  }
+  next();
+}
+
 async function run() {
   try {
     await client.connect();
-    const database = client.db("Todo-app");
-    const notesCollection = database.collection("notes");
-    const subscriptionsCollection = database.collection("subscription");
+    const database = client.db("to_do");
     const usersCollection = database.collection("users");
+    const notesCollection = database.collection("notes");
 
-    //users
-    //create user profile
+    // Add a user
     app.post("/users", async (req, res) => {
-      const data = req.body;
-      const result = await usersCollection.insertOne(data);
+      const user = req.body;
+      console.log(user);
+      const result = await usersCollection.insertOne(user);
+      console.log(result);
       res.json(result);
     });
 
-    //Notes post
-    app.post("/notes", async (req, res) => {
-      const data = req.body;
-      const user = await usersCollection.findOne({email: data.email});
-      const options = {upsert: true};
-      if (user?.subscription?.limit > 0) {
-        const filter = {email: data.email};
-        const newlimit = user.subscription.limit - 1;
-        const sub = {...user.subscription, limit: newlimit};
-        console.log(sub);
-        const updateDoc = {
-          $set: {
-            subscription: sub
-          }
-        };
-        const added = await usersCollection.updateOne(
-          filter,
-          updateDoc,
-          options
-        );
-        const result = await notesCollection.insertOne(data);
-        res.json(result);
-      }
-    });
-
-    //Get Notes
-    app.get("/notes/:email", async (req, res) => {
+    // Get a admin
+    app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
       const query = {email: email};
-      const cursor = notesCollection.find(query);
-      const notes = await cursor.toArray();
-      res.json(notes);
+      const user = await usersCollection.findOne(query);
+      let isAdmin = false;
+      if (user?.role === "admin") {
+        isAdmin = true;
+      }
+      res.json({admin: isAdmin});
     });
 
-    //Get Single Note
-    app.get("/note/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = {_id: ObjectID(id)};
-      const note = await notesCollection.findOne(query);
-      res.json(note);
-    });
-
-    //Delete Note
-    app.delete("/notes/:id", async (req, res) => {
-      const id = req.params.id;
-      const userEmail = req.body.email;
-      const user = await usersCollection.findOne({email: userEmail});
-      const filter = {email: userEmail};
-      const options = {upsert: true};
-      const newlimit = user.subscription.limit + 1;
-      const sub = {...user.subscription, limit: newlimit};
-      console.log(sub);
-      const updateDoc = {
-        $set: {
-          subscription: sub
-        }
-      };
-      const added = await usersCollection.updateOne(filter, updateDoc, options);
-      const query = {_id: ObjectID(id)};
-      const result = await notesCollection.deleteOne(query);
+    // Get all users
+    app.get("/users", verifyToken, async (req, res) => {
+      const cursor = usersCollection.find({});
+      const result = await cursor.toArray();
       res.json(result);
     });
 
-    //Update Note
-
-    app.put("/noteupdate/:id", async (req, res) => {
+    // Delete a user
+    app.delete("/users/:id", async (req, res) => {
       const id = req.params.id;
-      const data = req.body;
-      const filter = {_id: ObjectID(id)};
+      const query = {_id: ObjectId(id)};
+      const result = await usersCollection.deleteOne(query);
+      console.log("Deleting ", result);
+      res.json(result);
+    });
+
+    // Update subscription status by id
+    app.put("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = {_id: ObjectId(id)};
+      const option = {upsert: true};
+      const updateDoc = {
+        $set: {
+          status: "Approved"
+        }
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc, option);
+
+      res.json(result);
+    });
+
+    // Add a Note
+    app.post("/notes", async (req, res) => {
+      const note = req.body;
+      console.log(note);
+      const result = await notesCollection.insertOne(note);
+      console.log(result);
+      res.json(result);
+    });
+
+    // Get all notes
+    app.get("/notes", async (req, res) => {
+      const cursor = notesCollection.find({});
+      const result = await cursor.toArray();
+      res.json(result);
+    });
+
+    // Delete a Note
+    app.delete("/notes/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: ObjectId(id)};
+      const result = await notesCollection.deleteOne(query);
+      console.log("Deleting ", result);
+      res.json(result);
+    });
+
+    //UPDATE API
+    app.put("/notes/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedNote = req.body;
+      const filter = {_id: ObjectId(id)};
       const options = {upsert: true};
       const updateDoc = {
         $set: {
-          title: data.title,
-          note: data.note,
-          date: data.date
+          title: updatedNote.title,
+          detail: updatedNote.detail
         }
       };
       const result = await notesCollection.updateOne(
@@ -116,80 +131,19 @@ async function run() {
         updateDoc,
         options
       );
-
+      console.log("updating", id);
       res.json(result);
-    });
-
-    //Filter Note
-
-    app.get("/filterNotes", async (req, res) => {
-      const email = req.query.email;
-      const date = new Date(req.query.date).toLocaleDateString();
-      console.log(email, date);
-      const query = {email: email, date: date};
-      const cursor = notesCollection.find(query);
-      const notes = await cursor.toArray();
-      res.json(notes);
-    });
-
-    //Subscription
-
-    //get all subscrition
-    app.get("/subscriptions", async (req, res) => {
-      const cursor = subscriptionsCollection.find({});
-      const subscriptions = await cursor.toArray();
-      res.json(subscriptions);
-    });
-    //get a package
-    app.get("/subscriptions/:id", async (req, res) => {
-      const id = req.params.id;
-      const package = await subscriptionsCollection.findOne({
-        _id: ObjectID(id)
-      });
-      res.json(package);
-    });
-
-    //user update package
-    app.put("/users_subscription/:email", async (req, res) => {
-      const email = req.params.email;
-      let sub = req.body;
-      const user = await usersCollection.findOne({email: email});
-      if (user?.subscription) {
-        const preLimit = user.subscription.limit;
-        const newLimit = sub.limit + preLimit;
-        sub = {...sub, limit: newLimit};
-        console.log(sub);
-      }
-      const filter = {email: email};
-      const options = {upsert: true};
-      const updateDoc = {
-        $set: {
-          subscription: sub
-        }
-      };
-      const result = await usersCollection.updateOne(
-        filter,
-        updateDoc,
-        options
-      );
-      res.json(result);
-    });
-
-    app.get("/users/:email", async (req, res) => {
-      const email = req.params.email;
-      const user = await usersCollection.findOne({email: email});
-      res.json(user);
     });
   } finally {
-    //   await client.close();
+    // await client.close()
   }
 }
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Todo server running");
+  res.send("to do Server is Running");
 });
 
 app.listen(port, () => {
-  console.log("Litsening from port ", port);
+  console.log("Server running at port", port);
 });
